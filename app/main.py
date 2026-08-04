@@ -1,10 +1,14 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import engine, Base, get_db
-from app import models, schemas, auth
+from app import models, schemas, auth, validation
+from pathlib import Path
+
+import shutil
+import tempfile
 
 app = FastAPI(title="U-Model API")
 
@@ -54,3 +58,23 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @app.get("/auth/me", response_model=schemas.UserOut)
 def read_current_user(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+
+@app.post("/datasets/upload")
+async def upload_dataset(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Please upload a .zip file.")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        report = validation.validate_dataset_zip(tmp_path)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    return report
