@@ -2,9 +2,15 @@ from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import engine, Base, get_db
+from app import models  # noqa: F401 — importing registers the models with Base
 
 app = FastAPI(title="U-Model API")
+
+
+@app.on_event("startup")
+def on_startup():
+    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/health")
