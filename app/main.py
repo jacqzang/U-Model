@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import engine, Base, get_db
-from app import models, schemas, auth, validation
+from app import models, schemas, auth, validation, storage
 from pathlib import Path
 
 import shutil
@@ -64,6 +64,7 @@ def read_current_user(current_user: models.User = Depends(auth.get_current_user)
 async def upload_dataset(
     file: UploadFile = File(...),
     current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
 ):
     if not file.filename.endswith(".zip"):
         raise HTTPException(status_code=400, detail="Please upload a .zip file.")
@@ -74,7 +75,32 @@ async def upload_dataset(
 
     try:
         report = validation.validate_dataset_zip(tmp_path)
+
+        if not report["valid"]:
+            return report  # don't upload anything if validation failed
+
+        dataset_name = file.filename.replace(".zip", "")
+        s3_prefix = storage.upload_dataset_images(
+            zip_path=tmp_path,
+            user_id=current_user.id,
+            dataset_name=dataset_name,
+            image_paths=report["image_paths"],
+        )
+
+        total_images = sum(report["classes"].values())
+        dataset = models.Dataset(
+            user_id=current_user.id,
+            name=dataset_name,
+            class_names=list(report["classes"].keys()),
+            image_count=total_images,
+            s3_path=s3_prefix,
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+
+        report["dataset_id"] = dataset.id
+        report["s3_path"] = s3_prefix
+        return report
     finally:
         Path(tmp_path).unlink(missing_ok=True)
-
-    return report

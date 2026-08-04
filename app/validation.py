@@ -102,4 +102,5 @@ def validate_dataset_zip(zip_path: str) -> dict:
         "errors": errors,
         "warnings": warnings,
         "classes": dict(class_counts),
+        "image_paths": [p for p in paths if p.suffix.lower() in ALLOWED_EXTENSIONS and len(p.parts) >= 2],
     }
