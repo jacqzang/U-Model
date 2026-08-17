@@ -2,7 +2,10 @@
 Handles uploading dataset images to S3.
 """
 import os
+from dotenv import load_dotenv
 import boto3
+
+load_dotenv()
 
 s3_client = boto3.client(
     "s3",

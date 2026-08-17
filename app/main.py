@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import engine, Base, get_db
-from app import models, schemas, auth, validation, storage
+from app import models, schemas, auth, validation, storage, train
 from pathlib import Path
 
 import shutil
@@ -104,3 +104,57 @@ async def upload_dataset(
         return report
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+
+@app.post("/train")
+def start_training(
+    train_in: schemas.TrainRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    dataset = db.get(models.Dataset, train_in.dataset_id)
+    if not dataset or dataset.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    request = models.TrainingRequest(
+        user_id=current_user.id,
+        dataset_id=dataset.id,
+        status="running",
+        epochs=train_in.epochs,
+        model_size=train_in.model_size,
+        train_test_split=train_in.train_test_split,
+        confidence_threshold=train_in.confidence_threshold,
+    )
+    db.add(request)
+    db.commit()
+    db.refresh(request)
+
+    result = train.train_model(
+        s3_prefix=dataset.s3_path,
+        class_names=dataset.class_names,
+        epochs=train_in.epochs,
+        model_size=train_in.model_size,
+        train_test_split=train_in.train_test_split,
+    )
+
+    request.status = "complete"
+    db.commit()
+
+    model_record = models.MLModel(
+        request_id=request.id,
+        user_id=current_user.id,
+        s3_path=f"models/{request.id}.pt",  # placeholder — actual .pt upload comes later
+        final_accuracy=result["final_accuracy"],
+        confusion_matrix=result["confusion_matrix"],
+        confidence_threshold=train_in.confidence_threshold,
+    )
+    db.add(model_record)
+    db.commit()
+    db.refresh(model_record)
+
+    return {
+        "training_request_id": request.id,
+        "model_id": model_record.id,
+        "final_accuracy": result["final_accuracy"],
+        "confusion_matrix": result["confusion_matrix"],
+    }

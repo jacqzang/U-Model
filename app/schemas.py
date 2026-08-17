@@ -17,3 +17,10 @@ class UserOut(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class TrainRequest(BaseModel):
+    dataset_id: int
+    epochs: int = 20
+    model_size: str = "medium"
+    train_test_split: float = 0.8
+    confidence_threshold: float = 0.70
